@@ -1,0 +1,1 @@
+This is a sample note for the CoreMind demo. The system reads files from this /data directory to build its knowledge base.

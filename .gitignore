@@ -1,0 +1,19 @@
+# Python Virtual Environment
+venv/
+.venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Secrets (NEVER upload this!)
+.env
+*.env
+
+# IDE / Editor Settings
+.vscode/
+.idea/
+
+# Generated Data Files (created by the app)
+my_faiss.index
+my_notes.json
