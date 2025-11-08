@@ -6,3 +6,5 @@ sentence-transformers
 Flask
 flask-cors
 requests
+pypdf 
+python-docx
