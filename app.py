@@ -1,139 +1,139 @@
 import streamlit as st
 import requests
-import time
 import os
 from dotenv import load_dotenv
 
-# --- 0. Page Config & CSS Styles ---
+# --- 0. Page Config ---
 st.set_page_config(
-    page_title="CoreMind v0.6",
+    page_title="CoreMind v0.8",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CSS Block (Your existing dark theme CSS) ---
+# --- CSS Block ---
 st.markdown("""
 <style>
-    /* ... (Весь ваш довгий CSS-блок з темною темою v2.1) ... */
+    /* Dark Theme Optimization */
+    .stApp { background-color: #0E1117; color: #FAFAFA; }
+    .stTextInput > div > div > input { color: #FAFAFA; background-color: #262730; }
+    .stTextArea > div > div > textarea { color: #FAFAFA; background-color: #262730; }
+    .stButton > button { background-color: #FF4B4B; color: white; border-radius: 5px; }
+    div[data-testid="stExpander"] div[role="button"] p { font-size: 1.1rem; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
-# --- End of CSS Block ---
 
-
-# --- App Main Code ---
+# --- Config ---
 load_dotenv()
-API_BASE_URL = "http://127.0.0.1:5000"
+# В Docker ми будемо передавати це як змінну середовища. 
+# За замовчуванням (локально) - http://127.0.0.1:5000
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5000")
 
-# --- 0. Sidebar Interface ---
+# --- Sidebar ---
 st.sidebar.header("🧠 Living Memory")
-st.sidebar.caption("Add new knowledge to the AI's brain.")
+st.sidebar.caption(f"Backend: {API_BASE_URL}")
 
-# --- Section 1: Add Note by Text ---
+# --- Add Note ---
 st.sidebar.subheader("Add a Text Note")
-new_note_content = st.sidebar.text_area("New Note:", height=100, key="new_note_area", label_visibility="collapsed", placeholder="Type your new knowledge here...")
+new_note_content = st.sidebar.text_area("New Note:", height=100, key="new_note_area", label_visibility="collapsed", placeholder="Type new knowledge...")
 
-if st.sidebar.button("💾 Save & Update Memory", key="save_note", help="Saves the text note and rebuilds the AI's knowledge base"):
+if st.sidebar.button("💾 Save to Memory", key="save_note"):
     if new_note_content.strip():
-        with st.spinner("Saving note and updating memory..."):
+        with st.spinner("Indexing..."):
             try:
                 response = requests.post(f"{API_BASE_URL}/add_note", json={"content": new_note_content})
-                response.raise_for_status()
-                data = response.json()
-                if data.get("success"):
-                    st.sidebar.success(data.get("message", "Memory updated!"))
-                    st.rerun() 
+                if response.status_code == 201:
+                    st.sidebar.success("Memory updated!")
+                    st.rerun()
                 else:
-                    st.sidebar.error(data.get("error", "Unknown error occurred"))
-            except requests.exceptions.ConnectionError:
-                st.sidebar.error(f"API Connection Error. Is api.py running?")
+                    st.sidebar.error(f"Error: {response.json().get('error')}")
             except Exception as e:
-                st.sidebar.error(f"Error: {e}")
-    else:
-        st.sidebar.warning("Note cannot be empty.")
+                st.sidebar.error(f"Connection Error: {e}")
 
 st.sidebar.divider()
 
-# --- NEW Section 2: Add Note by File ---
-st.sidebar.subheader("Upload a File")
-uploaded_file = st.sidebar.file_uploader("Upload (.txt, .md, .pdf, .docx)", type=["txt", "md", "pdf", "docx"], label_visibility="collapsed")
+# --- Upload File ---
+st.sidebar.subheader("Upload File")
+uploaded_file = st.sidebar.file_uploader("Format: .txt, .pdf, .docx", type=["txt", "md", "pdf", "docx"])
 
 if uploaded_file is not None:
-    if st.sidebar.button("📤 Upload & Update Memory", key="upload_file", help="Uploads the file and rebuilds the AI's knowledge base"):
-        with st.spinner(f"Uploading '{uploaded_file.name}' and updating memory..."):
+    if st.sidebar.button("📤 Upload & Index"):
+        with st.spinner("Processing..."):
             try:
                 files = {'file': (uploaded_file.name, uploaded_file.getvalue())}
                 response = requests.post(f"{API_BASE_URL}/upload_file", files=files)
-                response.raise_for_status()
-                data = response.json()
-                
-                if data.get("success"):
-                    st.sidebar.success(data.get("message", "File uploaded!"))
+                if response.status_code == 201:
+                    st.sidebar.success("File indexed!")
                     st.rerun()
                 else:
-                    st.sidebar.error(data.get("error", "Unknown error occurred"))
-                    
-            except requests.exceptions.ConnectionError:
-                st.sidebar.error(f"API Connection Error. Is api.py running?")
+                    st.sidebar.error(f"Error: {response.json().get('error')}")
             except Exception as e:
-                st.sidebar.error(f"Error: {e}")
+                st.sidebar.error(f"Connection Error: {e}")
 
 st.sidebar.divider()
-if st.sidebar.button("🗑️ Clear Chat History"):
+
+# --- Admin Tools ---
+with st.sidebar.expander("🛠 Admin Tools"):
+    if st.button("♻️ Force Full Rebuild"):
+        with st.spinner("Rebuilding index from scratch..."):
+            try:
+                res = requests.post(f"{API_BASE_URL}/admin/rebuild_index")
+                if res.status_code == 200:
+                    st.success("Rebuild complete!")
+                else:
+                    st.error("Rebuild failed.")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+if st.sidebar.button("🗑️ Clear Chat"):
     st.session_state.messages = []
 
 
-# --- 1. Chat History Initialization ---
+# --- Main Chat Interface ---
 st.title("CoreMind")
-st.caption("Your personalized AI assistant powered by local knowledge.")
+st.caption("Secure Local RAG System")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- 2. Display Chat History ---
-# (Rest of the chat code is exactly the same as v0.5)
+# Display History
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if message.get("context"):
-            with st.expander("Show Sources Used"):
+            with st.expander("📚 Sources"):
                 for note in message["context"]:
-                    st.caption(f"**(From: {note['source']})** {note['content'][:150]}...")
+                    st.caption(f"**{note['source']}**: {note['content'][:150]}...")
 
-# --- 3. Chat Input Interface ---
-if prompt := st.chat_input("Ask CoreMind..."):
-    try:
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+# Input
+if prompt := st.chat_input("Ask something..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        messages_to_send = [msg.copy() for msg in st.session_state.messages]
-        for msg in messages_to_send:
-            msg.pop('context', None) 
-
-        with st.chat_message("assistant"):
-            with st.spinner("CoreMind is thinking..."):
+    messages_to_send = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
+    
+    with st.chat_message("assistant"):
+        with st.spinner("Analyzing..."):
+            try:
                 response = requests.post(f"{API_BASE_URL}/query", json={"messages": messages_to_send})
-                response.raise_for_status()
-                data = response.json()
+                if response.status_code == 200:
+                    data = response.json()
+                    response_text = data.get("response_text")
+                    found_context = data.get("found_context")
 
-                response_text = data.get("response_text")
-                found_context = data.get("found_context")
-
-                st.markdown(response_text)
-
-                if found_context:
-                    with st.expander("Show Sources Used"):
-                        for note in found_context:
-                            st.caption(f"**(From: {note['source']})** {note['content'][:150]}...")
-
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": response_text,
-                    "context": found_context 
-                })
-
-    except requests.exceptions.ConnectionError:
-        st.error(f"Failed to connect to CoreMind API at {API_BASE_URL}. Is api.py running?")
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
+                    st.markdown(response_text)
+                    if found_context:
+                        with st.expander("📚 Sources"):
+                            for note in found_context:
+                                st.caption(f"**{note['source']}**: {note['content'][:150]}...")
+                    
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": response_text,
+                        "context": found_context
+                    })
+                else:
+                    st.error(f"API Error: {response.text}")
+            except requests.exceptions.ConnectionError:
+                st.error(f"Cannot connect to CoreMind API at {API_BASE_URL}")

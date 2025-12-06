@@ -5,6 +5,6 @@ faiss-cpu
 sentence-transformers
 Flask
 flask-cors
-requests
+requests,
 pypdf 
 python-docx

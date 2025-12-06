@@ -1,5 +1,4 @@
 import os
-import os
 import time
 import json
 from flask import Flask, request, jsonify
@@ -8,17 +7,21 @@ from dotenv import load_dotenv
 import faiss
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI 
-from werkzeug.utils import secure_filename # Import for handling filenames
+from werkzeug.utils import secure_filename
 
-# Import our memory utilities
-from memory_utils import build_index, load_embedding_model, extract_text_from_file
+# Import our refactored memory utilities
+from memory_utils import build_index_from_scratch, load_embedding_model, add_document_to_index
 
-print("Starting CoreMind API (v0.6 - File Uploader)...")
+print("Starting CoreMind API (v0.7 - Optimized)...")
 
 # --- 1. Load Config and Models ---
 load_dotenv()
 OLLAMA_MODEL_NAME = "llama3.1:8b" 
-DATA_DIR = "./data" # Define data directory as a constant
+DATA_DIR = "./data"
+
+# Global memory state
+index = None
+notes = []
 
 try:
     print("Loading embedding model (for FAISS)...")
@@ -29,7 +32,8 @@ try:
         base_url='http://localhost:11434/v1', 
         api_key='ollama'
     )
-    client.models.list() 
+    # Quick health check
+    client.models.list()
     print(f"Successfully connected to Ollama. Using model: {OLLAMA_MODEL_NAME}")
     
 except Exception as e:
@@ -38,59 +42,74 @@ except Exception as e:
 
 
 # --- 2. Load "Memory" (FAISS) ---
-def load_memory():
-    """Loads FAISS index and notes. Returns (index, notes)"""
-    print("Loading memory (FAISS index and notes)...")
+def initialize_memory():
+    """
+    Initializes the memory state. 
+    If index exists, loads it. 
+    If not, triggers a full build from scratch.
+    """
+    global index, notes
+    print("Initializing memory...")
+    
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        
+    if not os.path.exists("my_faiss.index") or not os.path.exists("my_notes.json"):
+        print("WARNING: Memory files not found. Building index from scratch...")
+        success, msg = build_index_from_scratch(DATA_DIR)
+        if not success:
+            print(f"Initialization failed: {msg}")
+            index = None
+            notes = []
+            return
+
     try:
-        # Create data dir if it doesn't exist
-        if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR)
-            
-        if not os.path.exists("my_faiss.index") or not os.path.exists("my_notes.json"):
-            print("WARNING: Memory files not found. Attempting to build index...")
-            build_index(DATA_DIR)
-            
         index = faiss.read_index("my_faiss.index")
         with open('my_notes.json', 'r', encoding='utf-8') as f:
             notes = json.load(f)
         print(f"Memory loaded. {len(notes)} notes indexed.")
-        return index, notes
     except Exception as e:
-        print(f"Error loading memory: {e}")
-        return None, []
+        print(f"Error loading existing memory: {e}")
+        index = None
+        notes = []
 
-index, notes = load_memory()
+# Initialize on startup
+initialize_memory()
 
 # --- 3. Setup Flask API ---
 app = Flask(__name__)
 CORS(app) 
 
-# (search_in_memory and get_query_intent functions remain unchanged)
 def search_in_memory(query, k=3):
+    global index, notes
     if not index or not notes: return []
+    
     k = min(k, len(notes))
     if k == 0: return []
+    
     query_vector = embed_model.encode([query], normalize_embeddings=True)
     distances, indices = index.search(query_vector, k)
-    return [notes[i] for i in indices[0]]
+    
+    # Filter out -1 indices if FAISS returns them (invalid results)
+    valid_results = []
+    for i in indices[0]:
+        if 0 <= i < len(notes):
+            valid_results.append(notes[i])
+            
+    return valid_results
 
 def get_query_intent(user_prompt):
     print(f"Routing query: '{user_prompt}'")
     try:
-        router_prompt = "Analyze the user query: '{user_prompt}'. Is this simple chit-chat, or a specific question requiring a knowledge base search? Answer with only 'CHITCHAT' or 'SEARCH'."
-        response = client.chat.completions.create(model=OLLAMA_MODEL_NAME, messages=[{"role": "user", "content": router_prompt.format(user_prompt=user_prompt)}], temperature=0.0)
+        # Optimized prompt for the router to be faster and stricter
+        router_prompt = f"Analyze: '{user_prompt}'. Return 'SEARCH' if it asks for facts/info. Return 'CHITCHAT' if it is a greeting/joke. One word only."
+        response = client.chat.completions.create(model=OLLAMA_MODEL_NAME, messages=[{"role": "user", "content": router_prompt}], temperature=0.0)
         intent = response.choices[0].message.content.strip().upper()
-        if "SEARCH" in intent:
-            print("Router decision: SEARCH")
-            return "SEARCH"
-        else:
-            print("Router decision: CHITCHAT")
-            return "CHITCHAT"
-    except Exception as e:
-        print(f"Error in query router: {e}. Defaulting to 'SEARCH'.")
-        return "SEARCH"
+        return "SEARCH" if "SEARCH" in intent else "CHITCHAT"
+    except Exception:
+        return "SEARCH" # Fail-safe
 
-# --- Endpoint 1: Chat (Unchanged Persona) ---
+# --- Endpoint 1: Chat ---
 @app.route('/query', methods=['POST'])
 def handle_query():
     data = request.json
@@ -100,26 +119,33 @@ def handle_query():
     try:
         current_prompt = messages_from_user[-1]['content']
         intent = get_query_intent(current_prompt)
-        context_str = "No relevant internal documents found."
+        
+        context_str = ""
         found_context_data = []
 
         if intent == "SEARCH":
             context_notes = search_in_memory(current_prompt)
             if context_notes:
                 print(f"Found {len(context_notes)} relevant notes.")
-                context_for_prompt = [note['content'] for note in context_notes]
-                found_context_data = [note for note in context_notes] 
-                context_str = "\n---\n".join(context_for_prompt)
+                found_context_data = context_notes
+                # Add source filename to the context sent to LLM for better citation
+                context_str = "\n".join([f"Source: {n['source']}\nContent: {n['content']}" for n in context_notes])
             else:
-                print("No relevant context found.")
+                context_str = "No relevant internal documents found."
         else:
-            print("Skipping memory search for CHITCHAT.")
-            context_str = "Context not needed for this query."
+            context_str = "Context not needed (Chitchat)."
 
         system_message = {
             "role": "system",
-            "content": f"You are 'CoreMind', a personalized AI assistant. Answer questions based on the provided context. If the answer isn't in the context, say so. If it's chit-chat, be polite.\n--- CONTEXT: {context_str} ---"
+            "content": f"""You are CoreMind, a private AI assistant. 
+            Use ONLY the Context below to answer. If the answer isn't there, say you don't know.
+            
+            --- CONTEXT ---
+            {context_str}
+            ---------------
+            """
         }
+        
         final_messages = [system_message] + messages_from_user
         response = client.chat.completions.create(model=OLLAMA_MODEL_NAME, messages=final_messages)
         response_text = response.choices[0].message.content
@@ -129,298 +155,77 @@ def handle_query():
         print(f"Error during query: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- Endpoint 2: Add Note (Instant Rebuild) ---
+# --- Endpoint 2: Add Note (Optimized) ---
 @app.route('/add_note', methods=['POST'])
 def add_note():
-    global index, notes 
+    global index, notes
     data = request.json
     content = data.get('content')
     if not content or not content.strip():
         return jsonify({"error": "Note content cannot be empty"}), 400
+        
     try:
         timestamp = int(time.time())
         filename = f"note_{timestamp}.txt"
         filepath = os.path.join(DATA_DIR, filename)
+        
+        # 1. Save file
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        print(f"Note saved to {filename}. Rebuilding entire index...")
-        success, message = build_index(DATA_DIR)
-        if not success:
-            return jsonify({"error": f"Note saved, but index rebuild failed: {message}"}), 500
+        # 2. Incremental Update (Fast!)
+        print(f"Adding single file to index: {filename}")
+        success, msg, new_index, new_notes = add_document_to_index(filepath, index, notes)
         
-        index, notes = load_memory()
-        print("Memory successfully reloaded.")
-        return jsonify({"success": True, "message": f"Note saved and memory updated. Total notes: {len(notes)}"}), 201
+        if success:
+            index = new_index
+            notes = new_notes
+            return jsonify({"success": True, "message": f"Note added. Total: {len(notes)}"}), 201
+        else:
+            return jsonify({"error": msg}), 500
+            
     except Exception as e:
-        print(f"Error saving note or rebuilding: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- NEW Endpoint 3: Upload File ---
+# --- Endpoint 3: Upload File (Optimized) ---
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    global index, notes 
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
-    
+    global index, notes
+    if 'file' not in request.files: return jsonify({"error": "No file part"}), 400
     file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+    if file.filename == '': return jsonify({"error": "No selected file"}), 400
     
     if file:
         try:
-            # Secure the filename and save it to the data directory
             filename = secure_filename(file.filename)
             filepath = os.path.join(DATA_DIR, filename)
             file.save(filepath)
             
-            # Now that the file is saved, rebuild the entire index
-            print(f"File saved to {filename}. Rebuilding entire index...")
-            success, message = build_index(DATA_DIR)
+            # Incremental Update (Fast!)
+            print(f"Processing upload: {filename}")
+            success, msg, new_index, new_notes = add_document_to_index(filepath, index, notes)
             
-            if not success:
-                return jsonify({"error": f"File saved, but index rebuild failed: {message}"}), 500
-            
-            # Reload the memory in real-time
-            index, notes = load_memory()
-            print("Memory successfully reloaded.")
-            return jsonify({"success": True, "message": f"File '{filename}' uploaded and memory updated. Total items: {len(notes)}"}), 201
-            
+            if success:
+                index = new_index
+                notes = new_notes
+                return jsonify({"success": True, "message": f"Uploaded '{filename}'. Total: {len(notes)}"}), 201
+            else:
+                return jsonify({"error": msg}), 500
+                
         except Exception as e:
-            print(f"Error uploading file: {e}")
             return jsonify({"error": str(e)}), 500
 
-# --- Run Server ---
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from dotenv import load_dotenv
-import faiss
-from sentence_transformers import SentenceTransformer
-from openai import OpenAI 
+# --- NEW Endpoint: Force Full Rebuild (Admin) ---
+@app.route('/admin/rebuild_index', methods=['POST'])
+def force_rebuild():
+    global index, notes
+    print("Admin requested full index rebuild...")
+    success, msg = build_index_from_scratch(DATA_DIR)
+    if success:
+        initialize_memory() # Reload globals
+        return jsonify({"success": True, "message": msg})
+    else:
+        return jsonify({"success": False, "error": msg}), 500
 
-# Import our memory utilities
-from memory_utils import build_index, load_embedding_model
-
-print("Starting CoreMind API (v0.5 - Instant Memory)...")
-
-# --- 1. Load Config and Models ---
-load_dotenv()
-
-OLLAMA_MODEL_NAME = "llama3.1:8b" 
-
-try:
-    print("Loading embedding model (for FAISS)...")
-    embed_model = load_embedding_model() # from memory_utils
-    
-    print("Connecting to local Ollama server...")
-    client = OpenAI(
-        base_url='http://localhost:11434/v1', # Ollama's default address
-        api_key='ollama' # 'ollama' is the default key
-    )
-    
-    client.models.list() 
-    print(f"Successfully connected to Ollama. Using model: {OLLAMA_MODEL_NAME}")
-    
-except Exception as e:
-    print("!!! FAILED TO CONNECT TO OLLAMA !!!")
-    print("Is Ollama running? Did you run 'ollama run llama3.1:8b'?")
-    raise RuntimeError(f"Failed to connect to Ollama: {e}")
-
-
-# --- 2. Load "Memory" (FAISS) ---
-def load_memory():
-    """Loads FAISS index and notes. Returns (index, notes)"""
-    print("Loading memory (FAISS index and notes)...")
-    try:
-        if not os.path.exists("my_faiss.index") or not os.path.exists("my_notes.json"):
-            print("WARNING: Memory files not found. Index is empty.")
-            # Let's run build_index() to create them if they're missing
-            print("Attempting to build index from /data folder...")
-            build_index("./data/")
-            
-        index = faiss.read_index("my_faiss.index")
-        with open('my_notes.json', 'r', encoding='utf-8') as f:
-            notes = json.load(f)
-        print(f"Memory loaded. {len(notes)} notes indexed.")
-        return index, notes
-    except Exception as e:
-        print(f"Error loading memory: {e}")
-        return None, []
-
-index, notes = load_memory()
-
-# --- 3. Setup Flask API ---
-app = Flask(__name__)
-CORS(app) 
-
-def search_in_memory(query, k=3):
-    """Internal search function"""
-    if not index or not notes:
-        print("Search skipped: Memory is empty.")
-        return []
-    k = min(k, len(notes))
-    if k == 0:
-        return []
-    query_vector = embed_model.encode([query], normalize_embeddings=True)
-    distances, indices = index.search(query_vector, k)
-    results = [notes[i] for i in indices[0]]
-    return results
-
-# --- Query Router Function ---
-def get_query_intent(user_prompt):
-    """
-    Analyzes the user's prompt to decide if it's simple chit-chat
-    or a specific question that requires a memory search.
-    """
-    print(f"Routing query: '{user_prompt}'")
-    try:
-        router_prompt = f"""
-        Analyze the user query: '{user_prompt}'
-        Is this a simple greeting, thank you, or general small talk? 
-        Or is it a specific question that likely requires searching a knowledge base?
-        
-        Answer with only one word: 'CHITCHAT' or 'SEARCH'.
-        """
-        
-        response = client.chat.completions.create(
-            model=OLLAMA_MODEL_NAME,
-            messages=[{"role": "user", "content": router_prompt}],
-            temperature=0.0
-        )
-        intent = response.choices[0].message.content.strip().upper()
-        
-        if "SEARCH" in intent:
-            print("Router decision: SEARCH")
-            return "SEARCH"
-        else:
-            print("Router decision: CHITCHAT")
-            return "CHITCHAT"
-            
-    except Exception as e:
-        print(f"Error in query router: {e}. Defaulting to 'SEARCH'.")
-        return "SEARCH"
-
-# --- Endpoint 1: Chat (Updated Persona) ---
-@app.route('/query', methods=['POST'])
-def handle_query():
-    data = request.json
-    messages_from_user = data.get('messages')
-
-    if not messages_from_user:
-        return jsonify({"error": "Field 'messages' is required"}), 400
-
-    try:
-        current_prompt = messages_from_user[-1]['content']
-        intent = get_query_intent(current_prompt)
-        
-        context_str = "No relevant internal documents found."
-        found_context_data = []
-
-        if intent == "SEARCH":
-            context_notes = search_in_memory(current_prompt)
-            if context_notes:
-                print(f"Found {len(context_notes)} relevant notes.")
-                context_for_prompt = [note['content'] for note in context_notes]
-                found_context_data = [note for note in context_notes] 
-                context_str = "\n---\n".join(context_for_prompt)
-            else:
-                print("No relevant context found.")
-        else:
-            print("Skipping memory search for CHITCHAT.")
-            context_str = "Context not needed for this query."
-
-        # --- NEW STRICTER PERSONA (v0.7) ---
-        system_message = {
-            "role": "system",
-            "content": f"""
-            You are 'CoreMind', a specialized AI assistant. Your ONLY task is to answer user questions based *exclusively* on the provided context.
-            
-            ---
-            CONTEXT FROM KNOWLEDGE BASE:
-            {context_str}
-            ---
-
-            Follow these rules strictly:
-            1.  Analyze the user's last question.
-            2.  Find the answer ONLY within the 'CONTEXT FROM KNOWLEDGE BASE' provided above.
-            3.  If the answer IS in the context, synthesize it and provide a clear, helpful response.
-            4.  If the answer IS NOT in the context (or if the context says "No relevant documents found"), you MUST respond with: "I'm sorry, I don't have that specific information in my knowledge base."
-            5.  DO NOT, under any circumstances, mention your internal workings (e.g., "I cannot access files", "I am an AI"). Just answer based on the context or say you don't have the information.
-            6.  If the user is making small talk (like 'hello', 'thanks'), respond politely as an AI assistant.
-            """
-        }
-        # --- END OF NEW PROMPT ---
-        
-        final_messages = [system_message] + messages_from_user
-
-        response = client.chat.completions.create(
-            model=OLLAMA_MODEL_NAME,
-            messages=final_messages
-        )
-        
-        response_text = response.choices[0].message.content
-        
-        return jsonify({
-            "response_text": response_text,
-            "found_context": found_context_data
-        })
-
-    except Exception as e:
-        print(f"Error during query: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# --- Endpoint 2: Add Note (NEW LOGIC) ---
-@app.route('/add_note', methods=['POST'])
-def add_note():
-    global index, notes # We will be modifying the global memory
-    data = request.json
-    content = data.get('content')
-    
-    if not content or not content.strip():
-        return jsonify({"error": "Note content cannot be empty"}), 400
-        
-    try:
-        # 1. Save the file (for persistence)
-        data_dir = "./data"
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
-            
-        timestamp = int(time.time())
-        filename = f"note_{timestamp}.txt"
-        filepath = os.path.join(data_dir, filename)
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content)
-            
-        # 2. Rebuild the ENTIRE index (this is the new logic)
-        print(f"Note saved to {filename}. Rebuilding entire index...")
-        success, message = build_index(data_dir)
-        
-        if not success:
-            # If build fails, return error
-            print(f"Failed to rebuild index: {message}")
-            return jsonify({"error": f"Note was saved, but index rebuild failed: {message}"}), 500
-
-        # 3. Reload the global memory variables
-        index, notes = load_memory()
-        print("Memory successfully reloaded.")
-            
-        return jsonify({
-            "success": True, 
-            "message": f"Note saved and memory updated. Total notes: {len(notes)}"
-        }), 201
-
-    except Exception as e:
-        print(f"Error saving note or rebuilding: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# --- Endpoint 3: Rebuild Index (REMOVED) ---
-# We removed this endpoint as '/add_note' now handles rebuilding.
-# We will keep the 'build_index' function in memory_utils.py.
-
-
-# --- Run Server ---
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
