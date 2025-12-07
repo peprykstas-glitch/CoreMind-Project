@@ -11,114 +11,85 @@ from sentence_transformers import SentenceTransformer
 from openai import OpenAI 
 from werkzeug.utils import secure_filename
 
-# Import our refactored memory utilities
+# Наші утиліти
 from memory_utils import build_index_from_scratch, load_embedding_model, add_document_to_index
 
-print("Starting CoreMind API (v1.2 - Stable)...")
+print("Starting CoreMind API (v1.3 - Complete)...")
 
-# --- 1. Load Config ---
+# --- Config ---
 load_dotenv()
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434/v1")
 OLLAMA_MODEL_NAME = "gemma:2b" 
 DATA_DIR = "./data"
 DB_PATH = os.path.join(DATA_DIR, "chat_logs.db")
 
-# --- 2. Database Setup ---
+# --- Database ---
 def init_db():
     if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    # Table with feedback column
     c.execute('''CREATE TABLE IF NOT EXISTS logs 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
-                  timestamp TEXT, 
-                  user_query TEXT, 
-                  bot_response TEXT, 
-                  intent TEXT,
-                  latency REAL,
-                  feedback INTEGER DEFAULT 0)''') 
+                  timestamp TEXT, user_query TEXT, bot_response TEXT, 
+                  intent TEXT, latency REAL, feedback INTEGER DEFAULT 0)''') 
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- 3. Load Models ---
+# --- Models ---
 try:
-    print("Loading embedding model...")
+    print("Loading models...")
     embed_model = load_embedding_model() 
-    print(f"Connecting to Ollama at {OLLAMA_HOST}...")
     client = OpenAI(base_url=OLLAMA_HOST, api_key='ollama')
-    client.models.list() # Health check
-    print("Connected to Ollama!")
 except Exception as e:
-    print(f"!!! OLLAMA ERROR: {e}")
+    print(f"!!! Error loading models: {e}")
 
-# --- 4. Initialize Memory ---
+# --- Memory ---
 index = None
 notes = []
 
 def initialize_memory():
     global index, notes
     if not os.path.exists(DATA_DIR): os.makedirs(DATA_DIR)
-    if not os.path.exists("my_faiss.index") or not os.path.exists("my_notes.json"):
+    if not os.path.exists("my_faiss.index"):
         build_index_from_scratch(DATA_DIR)
     try:
         index = faiss.read_index("my_faiss.index")
-        with open('my_notes.json', 'r', encoding='utf-8') as f:
-            notes = json.load(f)
-        print(f"Memory loaded. {len(notes)} docs.")
-    except:
-        index = None; notes = []
+        with open('my_notes.json', 'r', encoding='utf-8') as f: notes = json.load(f)
+        print(f"Memory loaded: {len(notes)} docs")
+    except: index = None; notes = []
 
 initialize_memory()
 
 app = Flask(__name__)
 CORS(app) 
 
-# --- 5. Helper Functions (DEFINED BEFORE USE) ---
-
+# --- Functions ---
 def search_in_memory(query, k=3):
-    """Searches FAISS index for relevant notes."""
     global index, notes
     if not index or not notes: return []
-    
     k = min(k, len(notes))
     if k == 0: return []
     
     query_vector = embed_model.encode([query], normalize_embeddings=True)
     distances, indices = index.search(query_vector, k)
-    
-    # Filter out invalid indices
-    valid_results = [notes[i] for i in indices[0] if 0 <= i < len(notes)]
-    return valid_results
+    return [notes[i] for i in indices[0] if 0 <= i < len(notes)]
 
-def get_query_intent(user_prompt):
-    return "SEARCH"
-
-# --- 6. API Endpoints ---
+# --- Endpoints ---
 
 @app.route('/query', methods=['POST'])
 def handle_query():
     start_time = time.time()
     data = request.json
     messages = data.get('messages')
-    
-    if not messages: return jsonify({"error": "No messages"}), 400
-
     user_query = messages[-1]['content']
     
-    # 1. Search Context
-    context_notes = search_in_memory(user_query) # <--- NOW IT IS DEFINED ABOVE
-    found_context_data = context_notes if context_notes else []
-    
-    if context_notes:
-        context_str = "\n".join([f"- {n['content']}" for n in context_notes])
-    else:
-        context_str = "No specific context found."
+    context_notes = search_in_memory(user_query)
+    context_str = "\n".join([f"- {n['content']}" for n in context_notes]) if context_notes else "No context."
 
-    # 2. Generate Answer (Aggressive Prompt)
     system_prompt = (
-        "You are CoreMind. Use this INTERNAL KNOWLEDGE BASE to answer. "
+        "You are CoreMind. Use this KNOWLEDGE BASE to answer. "
         "The info is NOT private. If there is a name, state it. "
         f"\n\n--- KNOWLEDGE BASE ---\n{context_str}"
     )
@@ -130,10 +101,8 @@ def handle_query():
             temperature=0.1
         )
         bot_text = response.choices[0].message.content
-    except Exception as e:
-        bot_text = f"Error: {e}"
+    except Exception as e: bot_text = f"Error: {e}"
 
-    # 3. Log Analytics
     latency = time.time() - start_time
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -143,30 +112,19 @@ def handle_query():
     conn.commit()
     conn.close()
 
-    return jsonify({
-        "response_text": bot_text, 
-        "found_context": found_context_data,
-        "log_id": log_id
-    })
+    return jsonify({"response_text": bot_text, "found_context": context_notes, "log_id": log_id})
 
 @app.route('/feedback', methods=['POST'])
 def handle_feedback():
     data = request.json
-    log_id = data.get('log_id')
-    score = data.get('score')
-    
-    if not log_id or score not in [1, -1]:
-        return jsonify({"error": "Invalid data"}), 400
-        
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("UPDATE logs SET feedback = ? WHERE id = ?", (score, log_id))
+        c.execute("UPDATE logs SET feedback = ? WHERE id = ?", (data['score'], data['log_id']))
         conn.commit()
         conn.close()
         return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route('/analytics', methods=['GET'])
 def get_analytics():
@@ -180,46 +138,31 @@ def get_analytics():
 @app.route('/add_note', methods=['POST'])
 def add_note():
     global index, notes
-    data = request.json
-    content = data.get('content')
-    if not content: return jsonify({"error": "Empty"}), 400
-    
+    content = request.json.get('content')
     filename = f"note_{int(time.time())}.txt"
-    filepath = os.path.join(DATA_DIR, filename)
-    with open(filepath, 'w', encoding='utf-8') as f: f.write(content)
+    with open(os.path.join(DATA_DIR, filename), 'w', encoding='utf-8') as f: f.write(content)
     
-    success, msg, new_index, new_notes = add_document_to_index(filepath, index, notes)
-    if success:
-        index = new_index; notes = new_notes
-        return jsonify({"success": True, "message": "Saved"}), 201
+    success, msg, new_index, new_notes = add_document_to_index(os.path.join(DATA_DIR, filename), index, notes)
+    if success: index = new_index; notes = new_notes; return jsonify({"success": True}), 201
     return jsonify({"error": msg}), 500
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
     global index, notes
-    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
     file = request.files['file']
-    if file.filename == '': return jsonify({"error": "No name"}), 400
-    
     filename = secure_filename(file.filename)
     filepath = os.path.join(DATA_DIR, filename)
     file.save(filepath)
     
     success, msg, new_index, new_notes = add_document_to_index(filepath, index, notes)
-    if success:
-        index = new_index; notes = new_notes
-        return jsonify({"success": True, "message": "Uploaded"}), 201
+    if success: index = new_index; notes = new_notes; return jsonify({"success": True}), 201
     return jsonify({"error": msg}), 500
 
 @app.route('/admin/rebuild_index', methods=['POST'])
 def force_rebuild():
-    global index, notes
     success, msg = build_index_from_scratch(DATA_DIR)
-    if success:
-        initialize_memory()
-        return jsonify({"success": True, "message": msg})
-    else:
-        return jsonify({"success": False, "error": msg}), 500
+    if success: initialize_memory(); return jsonify({"success": True, "message": msg})
+    return jsonify({"success": False, "error": msg}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
