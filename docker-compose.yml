@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Сервіс бекенду (API)
   backend:
     build: .
     container_name: coremind-backend
@@ -9,18 +8,17 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Прокидаємо папку data з хоста в контейнер, щоб дані зберігалися після перезапуску
+      # Монтуємо тільки папку з даними.
+      # Індекс (my_faiss.index) буде жити всередині контейнера і не зламається.
       - ./data:/app/data
-      # Прокидаємо файли індексу, щоб не перебудовувати їх щоразу
-      - ./my_faiss.index:/app/my_faiss.index
-      - ./my_notes.json:/app/my_notes.json
     environment:
-      # Важливо! host.docker.internal дозволяє контейнеру достукатися до Ollama на твоєму ПК
+      # Ця змінна каже api.py, куди стукати
       - OLLAMA_HOST=http://host.docker.internal:11434/v1
     extra_hosts:
+      # Ця магія дозволяє Docker бачити твій Windows
       - "host.docker.internal:host-gateway"
+    restart: always
 
-  # Сервіс фронтенду (UI)
   frontend:
     build: .
     container_name: coremind-frontend
@@ -28,7 +26,7 @@ services:
     ports:
       - "8501:8501"
     environment:
-      # UI звертається до бекенду по імені сервісу ("backend")
       - API_BASE_URL=http://backend:5000
     depends_on:
       - backend
+    restart: always

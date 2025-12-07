@@ -1,139 +1,88 @@
 import streamlit as st
 import requests
+import pandas as pd
 import os
 from dotenv import load_dotenv
 
-# --- 0. Page Config ---
-st.set_page_config(
-    page_title="CoreMind v0.8",
-    page_icon="🧠",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# --- CSS Block ---
-st.markdown("""
-<style>
-    /* Dark Theme Optimization */
-    .stApp { background-color: #0E1117; color: #FAFAFA; }
-    .stTextInput > div > div > input { color: #FAFAFA; background-color: #262730; }
-    .stTextArea > div > div > textarea { color: #FAFAFA; background-color: #262730; }
-    .stButton > button { background-color: #FF4B4B; color: white; border-radius: 5px; }
-    div[data-testid="stExpander"] div[role="button"] p { font-size: 1.1rem; font-weight: bold; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- Config ---
+st.set_page_config(page_title="CoreMind AI", layout="wide")
 load_dotenv()
-# В Docker ми будемо передавати це як змінну середовища. 
-# За замовчуванням (локально) - http://127.0.0.1:5000
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5000")
 
+if "messages" not in st.session_state: st.session_state.messages = []
+
 # --- Sidebar ---
-st.sidebar.header("🧠 Living Memory")
-st.sidebar.caption(f"Backend: {API_BASE_URL}")
+page = st.sidebar.radio("Menu", ["💬 Chat", "📊 Analytics"])
 
-# --- Add Note ---
-st.sidebar.subheader("Add a Text Note")
-new_note_content = st.sidebar.text_area("New Note:", height=100, key="new_note_area", label_visibility="collapsed", placeholder="Type new knowledge...")
+if page == "💬 Chat":
+    st.header("Chat with Feedback")
 
-if st.sidebar.button("💾 Save to Memory", key="save_note"):
-    if new_note_content.strip():
-        with st.spinner("Indexing..."):
-            try:
-                response = requests.post(f"{API_BASE_URL}/add_note", json={"content": new_note_content})
-                if response.status_code == 201:
-                    st.sidebar.success("Memory updated!")
-                    st.rerun()
-                else:
-                    st.sidebar.error(f"Error: {response.json().get('error')}")
-            except Exception as e:
-                st.sidebar.error(f"Connection Error: {e}")
+    # Display Chat
+    for i, msg in enumerate(st.session_state.messages):
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            
+            # Show sources if any
+            if msg.get("context"):
+                with st.expander("📚 Sources"):
+                    for note in msg["context"]:
+                        st.caption(f"**{note['source']}**: {note['content'][:100]}...")
+            
+            # Show Feedback Buttons (Only for Assistant messages that have a log_id)
+            if msg["role"] == "assistant" and msg.get("log_id"):
+                col1, col2, col3 = st.columns([1, 1, 10])
+                
+                # Unique key for each button is crucial!
+                with col1:
+                    if st.button("👍", key=f"like_{i}"):
+                        requests.post(f"{API_BASE_URL}/feedback", json={"log_id": msg["log_id"], "score": 1})
+                        st.toast("Thanks for positive feedback!")
+                with col2:
+                    if st.button("👎", key=f"dislike_{i}"):
+                        requests.post(f"{API_BASE_URL}/feedback", json={"log_id": msg["log_id"], "score": -1})
+                        st.toast("We'll try to improve.")
 
-st.sidebar.divider()
+    # Input
+    if prompt := st.chat_input("Ask me..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"): st.markdown(prompt)
 
-# --- Upload File ---
-st.sidebar.subheader("Upload File")
-uploaded_file = st.sidebar.file_uploader("Format: .txt, .pdf, .docx", type=["txt", "md", "pdf", "docx"])
-
-if uploaded_file is not None:
-    if st.sidebar.button("📤 Upload & Index"):
-        with st.spinner("Processing..."):
-            try:
-                files = {'file': (uploaded_file.name, uploaded_file.getvalue())}
-                response = requests.post(f"{API_BASE_URL}/upload_file", files=files)
-                if response.status_code == 201:
-                    st.sidebar.success("File indexed!")
-                    st.rerun()
-                else:
-                    st.sidebar.error(f"Error: {response.json().get('error')}")
-            except Exception as e:
-                st.sidebar.error(f"Connection Error: {e}")
-
-st.sidebar.divider()
-
-# --- Admin Tools ---
-with st.sidebar.expander("🛠 Admin Tools"):
-    if st.button("♻️ Force Full Rebuild"):
-        with st.spinner("Rebuilding index from scratch..."):
-            try:
-                res = requests.post(f"{API_BASE_URL}/admin/rebuild_index")
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                res = requests.post(f"{API_BASE_URL}/query", json={"messages": st.session_state.messages})
                 if res.status_code == 200:
-                    st.success("Rebuild complete!")
-                else:
-                    st.error("Rebuild failed.")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
-if st.sidebar.button("🗑️ Clear Chat"):
-    st.session_state.messages = []
-
-
-# --- Main Chat Interface ---
-st.title("CoreMind")
-st.caption("Secure Local RAG System")
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# Display History
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message.get("context"):
-            with st.expander("📚 Sources"):
-                for note in message["context"]:
-                    st.caption(f"**{note['source']}**: {note['content'][:150]}...")
-
-# Input
-if prompt := st.chat_input("Ask something..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    messages_to_send = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages]
-    
-    with st.chat_message("assistant"):
-        with st.spinner("Analyzing..."):
-            try:
-                response = requests.post(f"{API_BASE_URL}/query", json={"messages": messages_to_send})
-                if response.status_code == 200:
-                    data = response.json()
-                    response_text = data.get("response_text")
-                    found_context = data.get("found_context")
-
-                    st.markdown(response_text)
-                    if found_context:
-                        with st.expander("📚 Sources"):
-                            for note in found_context:
-                                st.caption(f"**{note['source']}**: {note['content'][:150]}...")
+                    data = res.json()
+                    bot_text = data["response_text"]
+                    log_id = data.get("log_id") # Get ID from backend
                     
+                    st.markdown(bot_text)
                     st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": response_text,
-                        "context": found_context
+                        "role": "assistant", 
+                        "content": bot_text,
+                        "context": data.get("found_context"),
+                        "log_id": log_id 
                     })
-                else:
-                    st.error(f"API Error: {response.text}")
-            except requests.exceptions.ConnectionError:
-                st.error(f"Cannot connect to CoreMind API at {API_BASE_URL}")
+                    st.rerun() # Refresh to show buttons immediately
+
+elif page == "📊 Analytics":
+    st.header("Quality Assurance Dashboard")
+    if st.button("Refresh"): st.rerun()
+    
+    res = requests.get(f"{API_BASE_URL}/analytics")
+    data = res.json().get("logs", [])
+    if data:
+        # Columns: ID, Time, Query, Response, Intent, Latency, Feedback
+        df = pd.DataFrame(data, columns=["ID", "Timestamp", "Query", "Response", "Intent", "Latency", "Feedback"])
+        
+        # CSAT Score Calculation
+        total_rated = df[df["Feedback"] != 0].shape[0]
+        positive = df[df["Feedback"] == 1].shape[0]
+        csat = (positive / total_rated * 100) if total_rated > 0 else 0
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Queries", len(df))
+        col2.metric("CSAT Score", f"{csat:.0f}%", help="% of Likes")
+        col3.metric("Feedback Count", total_rated)
+        
+        st.subheader("Recent Feedback")
+        # Show only rated queries
+        st.dataframe(df[df["Feedback"] != 0][["Query", "Response", "Feedback"]])
