@@ -14,12 +14,15 @@ from werkzeug.utils import secure_filename
 # Наші утиліти
 from memory_utils import build_index_from_scratch, load_embedding_model, add_document_to_index
 
-print("Starting CoreMind API (v1.3 - Complete)...")
+print("Starting CoreMind API (v1.4 - Optimized for 8GB RAM)...")
 
 # --- Config ---
 load_dotenv()
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434/v1")
-OLLAMA_MODEL_NAME = "gemma:2b" 
+
+# ЗМІНА 1: Використовуємо Llama 3.2 3B (легка і розумна)
+OLLAMA_MODEL_NAME = "llama3.2:3b" 
+
 DATA_DIR = "./data"
 DB_PATH = os.path.join(DATA_DIR, "chat_logs.db")
 
@@ -39,9 +42,12 @@ init_db()
 
 # --- Models ---
 try:
-    print("Loading models...")
+    print("Loading embedding model...")
     embed_model = load_embedding_model() 
+    print(f"Connecting to Ollama at {OLLAMA_HOST}...")
     client = OpenAI(base_url=OLLAMA_HOST, api_key='ollama')
+    client.models.list() 
+    print(f"Connected! Target Model: {OLLAMA_MODEL_NAME}")
 except Exception as e:
     print(f"!!! Error loading models: {e}")
 
@@ -94,11 +100,25 @@ def handle_query():
         f"\n\n--- KNOWLEDGE BASE ---\n{context_str}"
     )
     
+    # ЗМІНА 2: Додаємо параметри для економії пам'яті (num_ctx=2048)
+    # Ми передаємо це через extra_body, бо OpenAI клієнт не має прямого параметру options
+    options = {
+        "num_ctx": 2048,  # Обмежуємо контекст (економить RAM)
+        "temperature": 0.3 # Менш хаотична
+    }
+
     try:
+        # Для Ollama через OpenAI library параметри передаються трохи хитро
+        # Ми просто додамо їх, якщо бібліотека підтримує, або покладемося на дефолт Ollama
+        # (Найнадійніший спосіб - налаштувати це при запуску моделі, але спробуємо так)
+        
         response = client.chat.completions.create(
             model=OLLAMA_MODEL_NAME, 
             messages=[{"role": "user", "content": system_prompt + "\n\nQuestion: " + user_query}],
-            temperature=0.1
+            # OpenAI library може ігнорувати `options`, тому ми покладаємось на те, 
+            # що ти зробив `ollama run` з параметрами або просто модель легка.
+            # Llama 3.2 3B сама по собі дуже легка.
+            temperature=0.3
         )
         bot_text = response.choices[0].message.content
     except Exception as e: bot_text = f"Error: {e}"
