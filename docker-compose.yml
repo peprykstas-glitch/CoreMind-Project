@@ -1,32 +1,12 @@
 version: '3.8'
 
 services:
-  backend:
-    build: .
-    container_name: coremind-backend
-    command: python api.py
+  # Векторна база даних (наш "мозок")
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: coremind-qdrant
     ports:
-      - "5000:5000"
+      - "6333:6333"
     volumes:
-      # Монтуємо тільки папку з даними.
-      # Індекс (my_faiss.index) буде жити всередині контейнера і не зламається.
-      - ./data:/app/data
-    environment:
-      # Ця змінна каже api.py, куди стукати
-      - OLLAMA_HOST=http://host.docker.internal:11434/v1
-    extra_hosts:
-      # Ця магія дозволяє Docker бачити твій Windows
-      - "host.docker.internal:host-gateway"
-    restart: always
-
-  frontend:
-    build: .
-    container_name: coremind-frontend
-    command: streamlit run app.py
-    ports:
-      - "8501:8501"
-    environment:
-      - API_BASE_URL=http://backend:5000
-    depends_on:
-      - backend
+      - ./qdrant_data:/qdrant/storage
     restart: always

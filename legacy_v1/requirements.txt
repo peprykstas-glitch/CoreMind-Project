@@ -1,0 +1,10 @@
+streamlit
+python-dotenv
+openai
+faiss-cpu
+sentence-transformers
+Flask
+flask-cors
+requests
+pypdf 
+python-docx
