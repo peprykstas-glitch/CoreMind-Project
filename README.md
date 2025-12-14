@@ -84,7 +84,6 @@ streamlit run frontend/main.py
 👉 Access the app at: http://localhost:8501
 
 📸 Screenshots
-(Add screenshots of your Dark UI here later)
 
 🔮 Roadmap
 [x] MVP: Local RAG with Llama 3.2.
