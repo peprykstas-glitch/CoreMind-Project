@@ -1,0 +1,3 @@
+Timestamp,Query,Response,Latency,Model,Feedback,QueryID
+2025-12-17T14:38:38.891774,hey,Hello. What's on your mind? Want to chat about something in particular or just see where the conversation takes us?,0.82,llama-3.3-70b-versatile,positive,1765978717171
+2025-12-17T14:39:08.642530,how your doing,"I'm doing well, thanks for asking. I'm a large language model, so I don't have feelings or emotions like humans do, but I'm functioning properly and ready to help with any questions or topics you'd like to discuss. How about you? How's your day going?",0.57,llama-3.3-70b-versatile,positive,1765978743482

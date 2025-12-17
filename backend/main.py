@@ -1,17 +1,31 @@
 import time
 import traceback
+import csv
+import os
+from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from groq import AsyncGroq  # 👈 Використовуємо Groq замість OpenAI/Ollama
+from pydantic import BaseModel
+from groq import AsyncGroq 
 
-# Project modules (твої існуючі файли)
+# Project modules
 from app.vector_store import vector_db
 from app.config import settings
 from app.schemas import QueryRequest, QueryResponse
-# ⚠️ Переконайся, що у тебе є файл backend/app/parser.py, інакше видали цей рядок і функцію upload
+# Ensure backend/app/parser.py exists
 from app.parser import parse_file 
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
+
+# --- LOGGING CONFIGURATION ---
+LOG_FILE = "chat_logs.csv"
+
+# Check if log file exists, if not, create headers
+if not os.path.exists(LOG_FILE):
+    with open(LOG_FILE, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        # Columns for our dataset
+        writer.writerow(["Timestamp", "Query", "Response", "Latency", "Model", "Feedback", "QueryID"])
 
 # CORS Configuration
 app.add_middleware(
@@ -25,14 +39,28 @@ app.add_middleware(
 print(f"🔌 Connecting to Groq LPU...")
 print(f"🤖 Using Model: {settings.MODEL_NAME}")
 
-# Ініціалізація клієнта Groq (Асинхронний)
+# Initialize Groq Client
 client = AsyncGroq(
     api_key=settings.GROQ_API_KEY
 )
 
-# --- 🔪 CHUNKING FUNCTION (Твоя стара функція) ---
+# --- DATA SCHEMAS ---
+# We need to update QueryResponse to include query_id, 
+# but since it's imported from app.schemas, we can just return it in the dict 
+# or update app/schemas.py. For simplicity, we will assume QueryResponse accepts extra fields
+# or we just return a dictionary if Pydantic complains. 
+# Better approach: Define Feedback Schema here.
+
+class FeedbackRequest(BaseModel):
+    query_id: str
+    feedback: str # "positive" or "negative"
+    query: str
+    response: str
+    latency: float
+
+# --- 🔪 CHUNKING FUNCTION ---
 def chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200):
-    """Розрізає текст на шматки."""
+    """Splits text into chunks with overlap."""
     chunks = []
     start = 0
     text_len = len(text)
@@ -47,9 +75,9 @@ def chunk_text(text: str, chunk_size: int = 2000, overlap: int = 200):
 
 @app.get("/health")
 async def health_check():
-    """Перевірка статусу бази та сервера."""
+    """Checks DB and Server status."""
     try:
-        # Отримуємо інформацію про колекцію Qdrant
+        # Get Qdrant collection info
         info = vector_db.client.get_collection(vector_db.collection_name)
         db_status = f"Connected. Docs count: {info.points_count}"
     except Exception as e:
@@ -63,14 +91,14 @@ async def health_check():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    """Завантажує файл, нарізає його і кладе в базу."""
+    """Uploads, chunks, and indexes a file."""
     start_time = time.time()
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
     print(f"📥 Uploading file: {file.filename}")
     
-    # Використовуємо твій парсер
+    # Use existing parser
     try:
         text_content = await parse_file(file)
     except Exception as e:
@@ -79,12 +107,12 @@ async def upload_file(file: UploadFile = File(...)):
     if not text_content.strip():
         raise HTTPException(status_code=400, detail="Empty file or parse error")
 
-    # Нарізаємо текст
+    # Chunk text
     chunks = chunk_text(text_content, chunk_size=2000, overlap=200)
     print(f"🔪 Split into {len(chunks)} chunks.")
 
     try:
-        # Заливаємо в Qdrant
+        # Upload to Qdrant
         for i, chunk in enumerate(chunks):
             vector_db.add_document(
                 text=chunk, 
@@ -109,26 +137,25 @@ async def upload_file(file: UploadFile = File(...)):
         "duration": duration
     }
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query") # Removed response_model to allow returning extra 'query_id' easily
 async def handle_query(request: QueryRequest):
-    """Обробка запиту користувача (RAG Pipeline)."""
+    """Processes user query (RAG Pipeline)."""
     start_time = time.time()
     
-    # ⚠️ Якщо request.messages це список об'єктів, беремо останній
-    # Якщо структура змінилася, можливо треба request.query_text
-    # Але судячи з твого старого коду, там був список повідомлень
+    # Get the last user message
     user_query = request.messages[-1].content 
     
     print(f"💬 Query received: {user_query}")
     
     try:
-        # 1. Пошук у Qdrant
-        search_results = vector_db.search(user_query, limit=5) # Збільшив ліміт до 5, бо чанки малі
+        # 1. Search in Qdrant
+        search_results = vector_db.search(user_query, limit=5)
         
         context_parts = []
         for hit in search_results:
             source = hit.payload.get('filename', 'Unknown')
-            text = hit.payload.get('text', hit.payload.get('content', '')) # Захист від різних назв полів
+            # Protect against different field names (text vs content)
+            text = hit.payload.get('text', hit.payload.get('content', '')) 
             context_parts.append(f"Source ({source}): {text}")
         
         context_str = "\n\n".join(context_parts)
@@ -143,7 +170,7 @@ async def handle_query(request: QueryRequest):
         context_str = "Error retrieving context."
         search_results = []
 
-    # 2. System Prompt (Твій фірмовий!)
+    # 2. System Prompt (Your specific Zombie/Sweater logic)
     system_prompt = (
         "You are CoreMind, an advanced AI assistant. "
         "CONTEXT AWARENESS: "
@@ -157,16 +184,15 @@ async def handle_query(request: QueryRequest):
         f"--- CONTEXT ---\n{context_str}"
     )
     
-    # Формуємо історію для Groq
+    # Build history for Groq
     llm_messages = [{"role": "system", "content": system_prompt}]
     
-    # Додаємо історію чату, якщо вона є в запиті
     for m in request.messages:
         if m.role != "system":
             llm_messages.append(m.model_dump())
 
     try:
-        # 3. Генерація через Groq
+        # 3. Generate via Groq
         print("⏳ Sending request to Groq...")
         
         completion = await client.chat.completions.create(
@@ -186,7 +212,10 @@ async def handle_query(request: QueryRequest):
 
     latency = time.time() - start_time
     
-    # Формуємо список джерел для відповіді
+    # Generate Unique Query ID (Timestamp)
+    query_id = str(int(time.time() * 1000))
+
+    # Format sources
     sources_data = [
         {
             "content": hit.payload.get('text', '')[:150] + "...", 
@@ -196,13 +225,37 @@ async def handle_query(request: QueryRequest):
         for hit in search_results
     ]
     
-    return QueryResponse(
-        response_text=response_text,
-        sources=sources_data,
-        latency=latency
-    )
+    # Return dictionary to include query_id without changing strict schemas
+    return {
+        "response_text": response_text,
+        "sources": sources_data,
+        "latency": latency,
+        "query_id": query_id
+    }
+
+@app.post("/feedback")
+async def log_feedback(data: FeedbackRequest):
+    """Logs user feedback (Like/Dislike) to CSV."""
+    try:
+        with open(LOG_FILE, mode="a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            # Timestamp, Query, Response, Latency, Model, Feedback, QueryID
+            writer.writerow([
+                datetime.now().isoformat(), 
+                data.query, 
+                data.response, 
+                f"{data.latency:.2f}", 
+                settings.MODEL_NAME, 
+                data.feedback,
+                data.query_id
+            ])
+        print(f"📝 Feedback logged: {data.feedback} for ID {data.query_id}")
+        return {"status": "logged"}
+    except Exception as e:
+        print(f"❌ Log Error: {e}")
+        return {"status": "error", "detail": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
-    # Запуск сервера
+    # Start Server
     uvicorn.run(app, host="0.0.0.0", port=8000)
