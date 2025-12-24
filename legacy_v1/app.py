@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # --- Page Config ---
 st.set_page_config(
-    page_title="CoreMind AI",
+    page_title="Vectrieve AI",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -27,7 +27,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5000")
 if "messages" not in st.session_state: st.session_state.messages = []
 
 # --- Sidebar Navigation ---
-st.sidebar.title("🧠 CoreMind")
+st.sidebar.title("🧠 Vectrieve")
 # Тепер тут 3 пункти, як має бути
 page = st.sidebar.radio("Navigation", ["Chat", "Analytics", "Knowledge Base"])
 st.sidebar.caption(f"Backend: {API_BASE_URL}")

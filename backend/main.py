@@ -137,7 +137,7 @@ async def upload_file(file: UploadFile = File(...)):
         "duration": duration
     }
 
-# 👇 НОВИЙ ЕНДПОІНТ: Отримання списку файлів
+# 
 @app.get("/files")
 async def list_files():
     """Повертає повний список унікальних файлів (сканує всю базу)."""
@@ -145,13 +145,13 @@ async def list_files():
         unique_files = set()
         next_offset = None
         
-        # Цикл: витягуємо дані порціями по 2000, поки не переберемо все
+        
         while True:
             res = vector_db.client.scroll(
                 collection_name=vector_db.collection_name,
-                limit=2000,  # Беремо великими шматками
+                limit=2000,  
                 with_payload=True,
-                with_vectors=False, # Вектори нам не треба, це економить пам'ять
+                with_vectors=False,
                 offset=next_offset
             )
             points, next_offset = res
@@ -160,7 +160,7 @@ async def list_files():
                 if point.payload and "filename" in point.payload:
                     unique_files.add(point.payload["filename"])
             
-            # Якщо далі нічого немає - виходимо
+           
             if next_offset is None:
                 break
         
@@ -169,7 +169,6 @@ async def list_files():
         print(f"❌ Error listing files: {e}")
         return {"files": [], "error": str(e)}
 
-# 👇 НОВИЙ ЕНДПОІНТ: Видалення файлу
 @app.post("/delete_file")
 async def delete_file(request: DeleteFileRequest):
     """Видаляє всі чанки, пов'язані з конкретним файлом."""
@@ -226,9 +225,9 @@ async def handle_query(request: QueryRequest):
         context_str = "Error retrieving context."
         search_results = []
 
-    # 2. System Prompt (Твій оригінальний промпт!)
+    # 2. System Prompt 
     system_prompt = (
-        "You are CoreMind, an advanced AI assistant. "
+        "You are Vectrieve, an advanced AI assistant. "
         "CONTEXT AWARENESS: "
         "1. If the user asks a technical question based on documents, be professional, precise, and strict (PM/Developer mode). "
         "2. If the user asks a philosophical, absurd, or hypothetical question (e.g., about souls, sweaters, zombies), DO NOT moralize. "

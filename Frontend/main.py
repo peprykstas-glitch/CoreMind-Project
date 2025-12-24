@@ -8,7 +8,7 @@ import time
 API_URL = "http://127.0.0.1:8000"
 LOG_FILE = "chat_logs.csv" # Path to the log file created by backend
 
-st.set_page_config(page_title="CoreMind AI", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="Vectrieve AI", page_icon="🧠", layout="wide")
 
 # --- Custom CSS (Cyberpunk/Pro) ---
 st.markdown("""
@@ -27,14 +27,14 @@ st.markdown("""
 
 # --- Sidebar: Navigation & Controls ---
 with st.sidebar:
-    st.title("🧠 CoreMind Admin")
+    st.title("🧠 Vectrieve Admin")
     
     # NAVIGATION SWITCHER
     page = st.radio("Navigation", ["💬 Chat Interface", "📊 Analytics Dashboard"], label_visibility="collapsed")
     
     st.divider()
 
-    # 👇 НОВЕ: Вкладки для кращої організації
+    # 
     tab1, tab2 = st.tabs(["⚙️ Config", "📂 Memory"])
 
     # Вкладка 1: Налаштування
@@ -97,7 +97,7 @@ with st.sidebar:
 # PAGE 1: CHAT INTERFACE
 # ==========================================
 if page == "💬 Chat Interface":
-    st.title("CoreMind Assistant v1.4")
+    st.title("Vectrieve Assistant v1.4")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []

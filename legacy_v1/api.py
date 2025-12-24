@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 # Наші утиліти
 from legacy_v1.memory_utils import build_index_from_scratch, load_embedding_model, add_document_to_index
 
-print("Starting CoreMind API (v1.4 - Optimized for 8GB RAM)...")
+print("Starting Vectrieve API (v1.4 - Optimized for 8GB RAM)...")
 
 # --- Config ---
 load_dotenv()
@@ -95,7 +95,7 @@ def handle_query():
     context_str = "\n".join([f"- {n['content']}" for n in context_notes]) if context_notes else "No context."
 
     system_prompt = (
-        "You are CoreMind. Use this KNOWLEDGE BASE to answer. "
+        "You are Vectrieve. Use this KNOWLEDGE BASE to answer. "
         "The info is NOT private. If there is a name, state it. "
         f"\n\n--- KNOWLEDGE BASE ---\n{context_str}"
     )

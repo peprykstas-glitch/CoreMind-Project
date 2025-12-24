@@ -1,9 +1,9 @@
 @echo off
-TITLE CoreMind Launcher 🚀
+TITLE Vectrieve Launcher 🚀
 chcp 65001 >nul
 
 echo ===================================================
-echo   STARTING COREMIND SYSTEM
+echo   STARTING Vectrieve SYSTEM
 echo ===================================================
 
 :: 1. Запускаємо Qdrant (База даних)
@@ -16,11 +16,11 @@ timeout /t 5 /nobreak >nul
 :: 2. Запускаємо Backend
 echo [2/4] Starting Backend...
 :: start "" запускає в новому вікні
-start "CoreMind Backend" cmd /k "python backend/main.py"
+start "Vectrieve Backend" cmd /k "python backend/main.py"
 
 :: 3. Запускаємо Frontend
 echo [3/4] Starting Frontend...
-start "CoreMind Frontend" cmd /k "streamlit run frontend/main.py"
+start "Vectrieve Frontend" cmd /k "streamlit run frontend/main.py"
 
 :: 4. Запускаємо Ngrok (для доступу з інтернету)
 echo [4/4] Opening Ngrok Tunnel...

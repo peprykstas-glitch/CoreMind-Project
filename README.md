@@ -1,4 +1,4 @@
-# 🧠 CoreMind AI: Context-Aware RAG Assistant
+# 🧠 Vectrieve AI: Context-Aware RAG Assistant
 
 > **An advanced AI assistant that builds a "Second Brain" from your documents.** > Features: OCR (Vision), Conversational Memory, and Analytics Dashboard.
 
@@ -10,7 +10,7 @@
 
 ## 📖 Project Overview
 
-**CoreMind** is a full-stack RAG (Retrieval-Augmented Generation) application designed to bridge the gap between static documents and interactive AI. Unlike standard chatbots, CoreMind allows users to build a personal knowledge base by uploading PDFs, text files, and **images (via OCR)**.
+**Vectrieve** is a full-stack RAG (Retrieval-Augmented Generation) application designed to bridge the gap between static documents and interactive AI. Unlike standard chatbots, Vectrieve allows users to build a personal knowledge base by uploading PDFs, text files, and **images (via OCR)**.
 
 Built with a focus on **Product Management principles**, the system includes a Feedback Loop (Like/Dislike), an Analytics Dashboard to track KPI (Latency, Token Usage), and a robust Admin Interface.
 
@@ -61,7 +61,7 @@ The system follows a microservices-like architecture:
 ## 📸 Screenshots
 
 ### 1. Chat Interface with OCR Support
-> CoreMind analyzing an image and extracting text.
+> Vectrieve analyzing an image and extracting text.
 *(Place your screenshot here, e.g., `![Chat](screenshots/chat_ocr.png)`)*
 
 ### 2. Analytics Dashboard
@@ -84,8 +84,8 @@ The system follows a microservices-like architecture:
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/YOUR_USERNAME/CoreMind.git](https://github.com/YOUR_USERNAME/CoreMind.git)
-    cd CoreMind
+    git clone [https://github.com/YOUR_USERNAME/Vectrieve.git](https://github.com/YOUR_USERNAME/Vectrieve.git)
+    cd Vectrieve
     ```
 
 2.  **Install dependencies:**
@@ -97,7 +97,7 @@ The system follows a microservices-like architecture:
     Create a `.env` file in the root directory:
     ```env
     GROQ_API_KEY=gsk_your_key_here
-    PROJECT_NAME=CoreMind AI
+    PROJECT_NAME=Vectrieve AI
     VERSION=1.4
     ```
 
