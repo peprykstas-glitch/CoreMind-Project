@@ -1,3 +1,4 @@
 streamlit
 requests
 python-dotenv
+PyYAML  >=6.0

@@ -1,131 +1,67 @@
-# 🧠 Vectrieve AI: Context-Aware RAG Assistant
+# 🧠 Vectrieve AI (v2.0)
 
-> **An advanced AI assistant that builds a "Second Brain" from your documents.** > Features: OCR (Vision), Conversational Memory, and Analytics Dashboard.
+**Vectrieve** is a secure, local RAG (Retrieval-Augmented Generation) Knowledge Assistant designed for developers and product managers. It allows users to chat with their documents (PDF, TXT) and source code (Python, JS, TS) with high precision and zero data leakage.
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-Backend-009688)
-![Streamlit](https://img.shields.io/badge/Streamlit-Frontend-ff4b4b)
-![Groq](https://img.shields.io/badge/AI-Groq%20LPU-orange)
-![Qdrant](https://img.shields.io/badge/Vector_DB-Qdrant-red)
+![Vectrieve UI Screenshot](![alt text](image.png))
+*(Replace this link with your actual screenshot)*
 
-## 📖 Project Overview
+## 🚀 Key Features
 
-**Vectrieve** is a full-stack RAG (Retrieval-Augmented Generation) application designed to bridge the gap between static documents and interactive AI. Unlike standard chatbots, Vectrieve allows users to build a personal knowledge base by uploading PDFs, text files, and **images (via OCR)**.
-
-Built with a focus on **Product Management principles**, the system includes a Feedback Loop (Like/Dislike), an Analytics Dashboard to track KPI (Latency, Token Usage), and a robust Admin Interface.
-
-## ✨ Key Features
-
-### 🚀 Core Functionality
-* **RAG Pipeline:** Retrieves precise answers from your own documents using **Qdrant** (Vector Search).
-* **LLM Powerhouse:** Powered by **Meta Llama 3.3 (70B)** via **Groq LPU** for lightning-fast inference (<1s latency).
-* **Computer Vision (OCR):** Extracts text from images and scanned documents using **Tesseract OCR**.
-* **Context Awareness:** Remembers chat history and resolves references (e.g., "Where does *he* live?").
-
-### 📊 Admin & Analytics (PM Features)
-* **Analytics Dashboard:** Visualizes system performance (Latency trends, Query volume, Model usage).
-* **Feedback Loop:** Users can rate responses (👍/👎), creating a dataset for future improvements.
-* **Knowledge Management:** UI to view indexed files and delete outdated documents from the vector database.
-
-### 🎭 Adaptive Persona
-* **Strict Mode:** Professional and precise for technical queries based on docs.
-* **Creative Mode:** Witty and sarcastic (Storyteller persona) for general chit-chat.
-
----
-
-## 🏗️ Architecture
-
-
-
-The system follows a microservices-like architecture:
-1.  **Frontend (Streamlit):** Handles UI, Session State, and Visualization.
-2.  **Backend (FastAPI):** Manages API endpoints, File Parsing, and Business Logic.
-3.  **Vector Store (Qdrant):** Stores document embeddings for semantic search.
-4.  **Inference Engine (Groq):** Generates human-like responses based on retrieved context.
-
----
+-   **🔍 Chat with Codebase:** Drag & drop project files (`.py`, `.js`, `.tsx`) to analyze logic, architecture, and endpoints instantly.
+-   **📄 Document Intelligence:** Powered by **Qdrant** vector search to retrieve precise context from large PDFs.
+-   **📊 Analytics Dashboard:** Real-time tracking of latency, model usage, and user feedback (👍/👎).
+-   **⚡ High Performance:** Built on **FastAPI** (Backend) and **Next.js 14** (Frontend) with optimized memory management.
+-   **🛡️ Secure & Local:** Documents are processed locally and stored in a Dockerized vector database.
 
 ## 🛠️ Tech Stack
 
-* **Language:** Python 3.11
-* **Backend:** FastAPI, Pydantic, Uvicorn
-* **Frontend:** Streamlit, Pandas (for Analytics)
-* **AI & ML:** * **LLM:** Llama 3.3-70b-versatile (via Groq API)
-    * **Embeddings:** FastEmbed / HuggingFace
-    * **OCR:** Tesseract + Pytesseract + Pillow
-* **Database:** Qdrant (Local Docker instance or Embedded)
-* **Tools:** Git, Python-dotenv
+-   **Core AI:** Groq (Llama-3-70b-versatile)
+-   **Vector DB:** Qdrant (Docker)
+-   **Backend:** Python, FastAPI, Pandas
+-   **Frontend:** TypeScript, Next.js, Tailwind CSS, Recharts
+-   **Orchestration:** Docker Compose
 
----
-
-## 📸 Screenshots
-
-### 1. Chat Interface with OCR Support
-> Vectrieve analyzing an image and extracting text.
-*(Place your screenshot here, e.g., `![Chat](screenshots/chat_ocr.png)`)*
-
-### 2. Analytics Dashboard
-> Monitoring system latency and user feedback.
-*(Place your screenshot here, e.g., `![Dashboard](screenshots/dashboard.png)`)*
-
-### 3. Knowledge Management
-> Managing uploaded files and vector index.
-*(Place your screenshot here, e.g., `![Memory](screenshots/memory.png)`)*
-
----
-
-## 🚀 How to Run
+## 📦 Installation Guide
 
 ### Prerequisites
-* Python 3.10+
-* [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) installed on your machine.
+-   Docker Desktop installed & running
+-   Python 3.10+
+-   Node.js 18+
 
-### Installation
+### 1. Clone & Setup Database
+```bash
+git clone [https://github.com/your-username/vectrieve-ai.git](https://github.com/your-username/vectrieve-ai.git)
+cd vectrieve-ai
+docker-compose up -d  # Starts Qdrant Vector DB
+2. Backend Setup (Brain)
+Bash
 
-1.  **Clone the repository:**
-    ```bash
-    git clone [https://github.com/YOUR_USERNAME/Vectrieve.git](https://github.com/YOUR_USERNAME/Vectrieve.git)
-    cd Vectrieve
-    ```
+cd backend
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
 
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
+pip install -r requirements.txt
+python main.py
+# Server starts at http://localhost:8000
+3. Frontend Setup (UI)
+Bash
 
-3.  **Configure Environment:**
-    Create a `.env` file in the root directory:
-    ```env
-    GROQ_API_KEY=gsk_your_key_here
-    PROJECT_NAME=Vectrieve AI
-    VERSION=1.4
-    ```
+cd vectrieve-ui
+npm install
+npm run build
+npm start
+# UI opens at http://localhost:3000
+🧩 How It Works
+Ingestion: User uploads a file. The backend parses text/code, chunks it, creates embeddings, and stores them in Qdrant.
 
-4.  **Run the System:**
-    * **Backend:**
-        ```bash
-        python backend/main.py
-        ```
-    * **Frontend:**
-        ```bash
-        streamlit run frontend/main.py
-        ```
+Retrieval: When a user asks a question, the system searches for the most relevant chunks in the vector DB.
 
----
+Generation: The retrieved context + user query are sent to the LLM (Groq) to generate a grounded response.
 
-## 🔮 Roadmap
+🤝 Contribution
+Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
 
-* [ ] **Cloud Deployment:** Dockerize and deploy to AWS/Render.
-* [ ] **Voice Interface:** Speech-to-Text integration for voice commands.
-* [ ] **Advanced Parsing:** Better handling of complex tables in PDFs.
-* [ ] **Multi-User Auth:** Login system for team usage.
-
----
-
-## 👤 Author
-
-**Stanislav Pepryk** *Business Management Student | Aspiring IT Project Manager & Product Owner*
-
-Passionate about bridging the gap between Business goals and Technical implementation through AI & Automation.
-
-[LinkedIn](www.linkedin.com/in/stanislav-pepryk-0139802b6) | [GitHub](https://github.com/peprykstas-glitch)
+Created by Stanislav Pepryk
